@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning][].
 ### Added
 
 - Support for reading `.zarr` movies via a new `read_zarr` function, wired into `read_img`/`read_fov`. Reads the Zhuang-lab HAL / `storm-control` Zarr format (a directory store with a single `(F, Y, X)` uint16 array named `data`) and returns frames in the same orientation as `.dax`.
+- Add `--on_the_fly` flag to `detect-spots` for incremental/streaming analysis of experiments whose rounds are processed while still being acquired. Spots are detected once from the reference (and common-bit) series and their positions are frozen; series whose image files are not yet on disk are skipped instead of raising `FileNotFoundError`, and re-running the same command as more rounds arrive resumes from the existing `spots_{fov}.csv` / `channels_{fov}.csv`, quantifying only the newly-arrived series and appending their bit columns. Defaults to `False`, preserving the original all-rounds-present behavior.
 
 ### Changed
 
