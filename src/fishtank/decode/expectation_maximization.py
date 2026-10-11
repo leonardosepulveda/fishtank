@@ -68,6 +68,12 @@ def expectation_maximization(
     spot_intensity = np.percentile(intensities / bit_intensity, 95, axis=1, keepdims=True)
     spot_intensity[spot_intensity == 0] = 1
     corrected = intensities / np.dot(spot_intensity, bit_intensity)
+    #logger.info(spot_intensity.shape)
+    #logger.info(bit_intensity.shape)
+    #logger.info(np.where(spot_intensity == 0))
+    #logger.info(np.where(bit_intensity == 0))  
+    #logger.info(np.where(np.dot(spot_intensity, bit_intensity) == 0))
+    #return
     # EM Loop
     for i in range(iter):
         # E step
