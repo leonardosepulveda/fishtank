@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning][].
 ### Fixes
 
 - `determine_fov_format` raises `FileNotFoundError` instead of `ValueError` when no file matches, so a missing image is reported the same way whether or not the pattern fixes the FOV width.
+- `decode-spots` drops spots with NaN intensities in the decoding bits before decoding (one NaN made every normalized intensity NaN), and raises a clear error when a decoding bit has no intensity column.
 
 ## [0.3.7]
 
