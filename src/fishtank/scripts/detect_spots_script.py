@@ -109,7 +109,7 @@ def _get_reg_img(img, reg_bit, reg_color, channels, reg_z_slice=None, z_drift=Fa
     return reg_img
 
 
-def _load_reg_img(input, fov, series, reg_bit, reg_color, channels, file_pattern, reg_z_slice=None, z_drift=False, clip_pct=None):
+def _load_reg_img(input, fov, series, reg_bit, reg_color, channels, file_pattern, reg_z_slice=None, z_drift=False, clip_pct=None, microscope=None):
     if reg_color is not None:
         reg_channel = channels.query("color == @reg_color & series == @series")
     else:
@@ -117,7 +117,7 @@ def _load_reg_img(input, fov, series, reg_bit, reg_color, channels, file_pattern
     if reg_channel.empty:
         raise ValueError(f"Registration color {reg_color} not found in color usage")
     reg_img = ft.io.read_fov(input, fov, channels=channels.query("series == @series & bit == @reg_bit"),
-                             z_slices=reg_z_slice,file_pattern=file_pattern)[0]
+                             z_slices=reg_z_slice,file_pattern=file_pattern, microscope=microscope)[0]
     if reg_z_slice is None and not z_drift:
         reg_img = reg_img.max(axis=0)
     reg_img = _remove_hot_pixels(reg_img)
@@ -195,6 +195,7 @@ def get_parser():
         "instead of raising FileNotFoundError. Default False = original behavior "
         "(every series must be present up front).",
     )
+    parser.add_argument("--microscope", type=parse_path, default=None, help="YAML file of microscope settings (transpose, flip_horizontal, flip_vertical, micron_per_pixel) that override the image XML")
     parser.set_defaults(func=detect_spots)
     return parser
 
@@ -225,6 +226,7 @@ def detect_spots(
     scale_factor: float | None = None,
     z_slices: list[int] | slice | None = None,
     on_the_fly: bool = False,
+    microscope: str | Path | None = None,
     **kwargs,
 ):
     """Detect spots in an image and quantify their intensity.
@@ -292,6 +294,8 @@ def detect_spots(
         not be present yet, the final ``dropna`` (which would discard spots missing any
         bit) is skipped in this mode, so not-yet-acquired bits are left as NaN. When
         False (default) the behavior is unchanged: every series must be present up front.
+    microscope
+        YAML file of microscope settings that override the image XML (see ``fishtank.io.read_microscope``).
     """
     # Setup
     logger = logging.getLogger("detect_spots")
@@ -308,8 +312,8 @@ def detect_spots(
     logger.info(f"Loading reference series {ref_series}")
     ref_channels = channels.query("series == @ref_series & bit not in @reg_bit and bit not in @exclude_bits")
     try:
-        ref_img, ref_attr = ft.io.read_fov(input, fov, channels=ref_channels, file_pattern=file_pattern, z_slices=z_slices)
-        reg_img = _load_reg_img(input, fov, ref_series, reg_bit, reg_color, channels, file_pattern, reg_z_slice, z_drift, reg_clip_pct)
+        ref_img, ref_attr = ft.io.read_fov(input, fov, channels=ref_channels, file_pattern=file_pattern, z_slices=z_slices, microscope=microscope)
+        reg_img = _load_reg_img(input, fov, ref_series, reg_bit, reg_color, channels, file_pattern, reg_z_slice, z_drift, reg_clip_pct, microscope)
     except FileNotFoundError as e:
         # On the fly, the reference round may simply not have been transferred yet.
         # Nothing can be detected or quantified until it is; exit cleanly so a later
@@ -358,8 +362,8 @@ def detect_spots(
                 logger.info("Getting common bit max projection")
                 for series, series_channels in channels.query("bit in @common_bits").groupby("series", sort=False):
                     logger.info(f"Loading series {series}")
-                    img, _ = ft.io.read_fov(input, fov, channels=series_channels, file_pattern=file_pattern, z_slices=z_slices)
-                    series_reg_img = _load_reg_img(input, fov, series, reg_bit, reg_color, channels, file_pattern, reg_z_slice, z_drift, reg_clip_pct)
+                    img, _ = ft.io.read_fov(input, fov, channels=series_channels, file_pattern=file_pattern, z_slices=z_slices, microscope=microscope)
+                    series_reg_img = _load_reg_img(input, fov, series, reg_bit, reg_color, channels, file_pattern, reg_z_slice, z_drift, reg_clip_pct, microscope)
                     drift = ski.registration.phase_cross_correlation(reg_img, series_reg_img)[0].astype(int)
                     logger.info(f"Series drift: {drift}")
                     img = np.roll(img, shift=drift[:2], axis=(-2, -1))# apply drift correction
@@ -405,7 +409,7 @@ def detect_spots(
         # Read series image
         logger.info(f"Loading series {series}")
         try:
-            img, series_attr = ft.io.read_fov(input, fov, channels=series_channels, file_pattern=file_pattern, z_slices=z_slices)
+            img, series_attr = ft.io.read_fov(input, fov, channels=series_channels, file_pattern=file_pattern, z_slices=z_slices, microscope=microscope)
         except FileNotFoundError as e:
             # On the fly, this round simply hasn't been transferred yet -> skip; a later
             # re-run will pick it up. Off the fly, a missing series is a real error.
@@ -418,7 +422,7 @@ def detect_spots(
         channel_max = img.max(axis=(1, 2, 3))
         series_channels["max_intensity"] = channel_max
         # Get the drift
-        series_reg_img = _load_reg_img(input, fov, series, reg_bit, reg_color, channels, file_pattern, reg_z_slice, z_drift, reg_clip_pct)
+        series_reg_img = _load_reg_img(input, fov, series, reg_bit, reg_color, channels, file_pattern, reg_z_slice, z_drift, reg_clip_pct, microscope)
         drift = ski.registration.phase_cross_correlation(reg_img, series_reg_img)[0].astype(int)
         if z_drift:
             if np.abs(drift[0] - current_drift[0]) > 3:
