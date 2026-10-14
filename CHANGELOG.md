@@ -19,6 +19,8 @@ and this project adheres to [Semantic Versioning][].
 
 ### Changed
 
+- `masks_to_polygons` traces each cell on its bounding box instead of scanning the whole volume per cell. Output is unchanged; about 9x faster on a 300-cell 3D volume.
+
 ### Fixes
 
 - `determine_fov_format` raises `FileNotFoundError` instead of `ValueError` when no file matches, so a missing image is reported the same way whether or not the pattern fixes the FOV width.
