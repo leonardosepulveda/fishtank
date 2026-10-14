@@ -133,8 +133,11 @@ def cellpose(
         YAML file of microscope settings that override the image XML (see ``fishtank.io.read_microscope``).
     """
     # Import Cellpose
-    from cellpose import models
+    from cellpose import core, models
 
+    # Without this check cellpose silently falls back to the CPU and holds the GPU idle
+    if gpu and not core.use_gpu():
+        raise RuntimeError("gpu=True but no working CUDA or MPS device was found")
     # Setup logger
     logger = logging.getLogger("cellpose")
     logger = FOVLoggerAdapter(logger, {"fov": fov})

@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning][].
 
 - `determine_fov_format` raises `FileNotFoundError` instead of `ValueError` when no file matches, so a missing image is reported the same way whether or not the pattern fixes the FOV width.
 - `decode-spots` drops spots with NaN intensities in the decoding bits before decoding (one NaN made every normalized intensity NaN), and raises a clear error when a decoding bit has no intensity column.
+- `fishtank cellpose` with `gpu=True` raises `RuntimeError` when no working CUDA or MPS device is found, instead of silently running on the CPU while holding the GPU.
 
 ## [0.3.7]
 
