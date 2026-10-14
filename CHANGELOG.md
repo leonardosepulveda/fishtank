@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning][].
 ### Changed
 
 - `masks_to_polygons` traces each cell on its bounding box instead of scanning the whole volume per cell. Output is unchanged; about 9x faster on a 300-cell 3D volume.
+- `fix_overlaps` splits polygons per cell with one `groupby` and takes the next overlap edge without listing or counting all edges each step. Output is unchanged; on a median LT056 edge tile (102,001 rows, 4,272 cells) it takes 54% of the previous time.
 
 ### Fixes
 
