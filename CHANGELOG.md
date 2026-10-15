@@ -12,6 +12,8 @@ and this project adheres to [Semantic Versioning][].
 
 ### Added
 
+- `fishtank cellpose --fov` takes a list or range of FOVs (e.g. `0:50`) and processes them in one process: the model is built once, the next FOV is loaded and the previous one saved while the current one is segmented, and FOVs whose output exists are skipped so a requeued job resumes. Output files are written under a temporary name and renamed. A single FOV behaves as before.
+
 ### Changed
 
 ### Fixes

@@ -1,6 +1,8 @@
 import argparse
 import logging
+import os
 import warnings
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import numpy as np
@@ -24,7 +26,9 @@ def get_parser():
     """Get parser for cellpose script"""
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("-i", "--input", type=parse_path, required=True, help="Input file directory")
-    parser.add_argument("-f", "--fov", type=int, required=True, help="Field of view to process")
+    parser.add_argument(
+        "-f", "--fov", type=parse_index, required=True, help="Field(s) of view to process (e.g., 1 or 0:50 or 1,4,7)"
+    )
     parser.add_argument("-o", "--output", type=parse_path, default="./cellpose_polygons", help="Output directory")
     parser.add_argument(
         "--channels", type=parse_list, required=True, help="Channel for segmentation (e.g., DAPI or PolyT,DAPI)"
@@ -62,7 +66,7 @@ def get_parser():
 
 def cellpose(
     input: str | Path,
-    fov: int,
+    fov: int | list[int],
     channels: list[str],
     output: str | Path = "./cellpose_polygons",
     file_pattern: str = "{series}/Conv_zscan_{fov}.dax",
@@ -92,7 +96,9 @@ def cellpose(
     input
         Image file directory.
     fov
-        Field of view to process.
+        Field of view to process, or a list of FOVs to process in one batch. A batch builds the model
+        once, loads the next FOV while the current one is segmented, and skips FOVs whose output
+        already exists.
     channels
         Channel for segmentation (e.g., DAPI or PolyT,DAPI).
     output
@@ -131,17 +137,71 @@ def cellpose(
     # Import Cellpose
     from cellpose import models
 
-    # Setup logger
+    # Setup
     logger = logging.getLogger("cellpose")
-    logger = FOVLoggerAdapter(logger, {"fov": fov})
     logger.info(f"fishtank version: {ft.__version__}")
-    # Read image
-    logger.info("Loading image")
     if "{input}" in color_usage:
         color_usage = color_usage.format(input=input)
     use_channels = channels
     channels = ft.io.read_color_usage(color_usage)
     channels = channels.set_index("bit").loc[use_channels, :].reset_index()
+    if downsample is not None and anisotropy is not None:
+        # downsampling only applies to x,y dimensions
+        logger.info(f"Rescaling anisotropy for 3D segmentation: {anisotropy} -> {anisotropy / downsample}")
+        anisotropy = anisotropy / downsample
+    logger.info(f"Anisotropy after downsampling: {anisotropy}")
+    # A batch skips FOVs whose output already exists, so a requeued job resumes
+    fovs = [fov] if isinstance(fov, int) else [int(f) for f in fov]
+    if len(fovs) > 1:
+        done = [f for f in fovs if (output / f"polygons_{f}.json").exists()]
+        if done:
+            logger.info(f"Skipping {len(done)} FOVs with existing output: {done}")
+        fovs = [f for f in fovs if f not in done]
+    if len(fovs) == 0:
+        return
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        model = models.CellposeModel(pretrained_model=model, gpu=gpu)
+    load_args = {
+        "input": input,
+        "channels": channels,
+        "file_pattern": file_pattern,
+        "corrections": corrections,
+        "z_slices": z_slices,
+        "downsample": downsample,
+        "filter": filter,
+        "filter_args": filter_args,
+        "gpu": gpu,
+    }
+    eval_args = {
+        "diameter": diameter,
+        "cellprob_threshold": cellprob_threshold,
+        "anisotropy": anisotropy,
+        "do_3D": do_3D,
+        "model_args": model_args,
+        "clear_border": clear_border,
+    }
+    save_args = {"output": output, "z_slices": z_slices, "downsample": downsample, "min_size": min_size}
+    # Load the next FOV and save the previous one while the current one is segmented
+    with ThreadPoolExecutor(1) as loader, ThreadPoolExecutor(1) as saver:
+        next_image = loader.submit(_load_image, fovs[0], **load_args)
+        saved = []
+        for i, f in enumerate(fovs):
+            img, attrs = next_image.result()
+            if i + 1 < len(fovs):
+                next_image = loader.submit(_load_image, fovs[i + 1], **load_args)
+            masks = _segment(model, img, f, **eval_args)
+            saved.append(saver.submit(_save_polygons, masks, attrs, f, **save_args))
+        for future in saved:
+            future.result()
+    logger.info("Done")
+
+
+def _load_image(fov, input, channels, file_pattern, corrections, z_slices, downsample, filter, filter_args, gpu):
+    """Read, correct, filter and downsample one FOV."""
+    logger = FOVLoggerAdapter(logging.getLogger("cellpose"), {"fov": fov})
+    # Read image
+    logger.info("Loading image")
     img, attrs = ft.io.read_fov(input, fov, channels=channels, file_pattern=file_pattern, z_slices=z_slices)
     logger.info(f"Loaded image with shape: {img.shape}")
     logger.info(f"Loaded attrs: {attrs}")
@@ -153,6 +213,7 @@ def cellpose(
         logger.info("No correction path provided, skipping illumination correction")
     # Apply filter
     if filter is not None:
+        filter_args = dict(filter_args or {})
         if hasattr(ft.filters, filter):
             logger.info(f"Applying {filter} filter from fishtank")
             if filter == "deconwolf":
@@ -174,16 +235,13 @@ def cellpose(
         logger.info(f"Downsampling image by a factor of {downsample}")
         downscale = (1,) * (img.ndim - 2) + (downsample, downsample)
         img = ski.transform.downscale_local_mean(img, downscale)
-        # add rescaled anisotropy for 3D segmentation
-        if anisotropy is not None:
-            logger.info(f"Rescaling anisotropy for 3D segmentation: {anisotropy} -> {anisotropy / downsample}")
-            anisotropy = anisotropy / downsample # because downsampling only to x,y dimensions
-    logger.info(f"Anisotropy after downsampling: {anisotropy}")
-    # Segment cells
+    return img, attrs
+
+
+def _segment(model, img, fov, diameter, cellprob_threshold, anisotropy, do_3D, model_args, clear_border):
+    """Segment one FOV with a loaded Cellpose model."""
+    logger = FOVLoggerAdapter(logging.getLogger("cellpose"), {"fov": fov})
     logger.info("Segmenting cells")
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        model = models.CellposeModel(pretrained_model=model, gpu=gpu)
     masks = model.eval(
         img,
         diameter=diameter,
@@ -192,7 +250,7 @@ def cellpose(
         do_3D=do_3D,
         channel_axis=0 if img.ndim >= 3 else None,
         z_axis=1 if img.ndim == 4 else 0,
-        **model_args,
+        **(model_args or {}),
     )[0]
     # cellpose (>=4.0.1) rescales the z-axis internally when anisotropy is set for do_3D,
     # and no longer resizes the output masks back down (see "Resizing is deprecated in v4.0.1+").
@@ -206,6 +264,12 @@ def cellpose(
     if clear_border:
         logger.info("Clearing border")
         masks = ski.segmentation.clear_border(np.pad(masks, ((1, 1), (0, 0), (0, 0)), mode="constant"))[1:-1, :, :]
+    return masks
+
+
+def _save_polygons(masks, attrs, fov, output, z_slices, downsample, min_size):
+    """Convert one FOV's masks to polygons and save them as GeoJSON."""
+    logger = FOVLoggerAdapter(logging.getLogger("cellpose"), {"fov": fov})
     # Convert to polygons
     logger.info("Converting to polygons")
     polygons = ft.seg.masks_to_polygons(masks)
@@ -226,13 +290,14 @@ def cellpose(
     polygons = polygons[polygons["area"] > min_size].copy()
     n_after = polygons["cell"].nunique()
     logger.info(f"Removed {n_before - n_after} out of {n_before} total cells")
-    # Save results
+    # Save results, under a temporary name so an interrupted job leaves no partial file
     logger.info(f"Saving polygons to {output} / polygons_{fov}.json")
     polygons["fov"] = fov
     polygons["x_offset"] = attrs["stage_position"][0]
     polygons["y_offset"] = attrs["stage_position"][1]
     output.mkdir(parents=True, exist_ok=True)
+    tmp_path = output / f"polygons_{fov}.json.tmp"
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        polygons.to_file(output / f"polygons_{fov}.json", driver="GeoJSON")
-    logger.info("Done")
+        polygons.to_file(tmp_path, driver="GeoJSON")
+    os.replace(tmp_path, output / f"polygons_{fov}.json")
