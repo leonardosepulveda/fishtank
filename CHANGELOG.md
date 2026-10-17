@@ -16,6 +16,8 @@ and this project adheres to [Semantic Versioning][].
 
 ### Fixes
 
+- `decode-spots --positions` added micron positions to pixel spot coordinates; it now converts them with the new `--scale_factor` (microns per pixel), which is required with `--positions`. **Breaking** for `--positions` callers.
+
 ## [0.3.7]
 
 ### Fixes

@@ -1,5 +1,6 @@
 import logging
 
+import pandas as pd
 import pytest
 
 import fishtank as ft
@@ -29,6 +30,30 @@ def test_assign_spots_script(caplog):
     assert "Iteration 9: 17.71% of spots with distance < 1.7" in caplog.text
     assert "Using logistic regression to decode state" in caplog.text
     assert "Saving decoded spots to tests/output/decoded_spots.csv" in caplog.text
+
+
+def test_decode_spots_positions(tmp_path):
+    spots_dir = tmp_path / "spots"
+    spots_dir.mkdir()
+    for fov in [0, 1]:
+        pd.DataFrame({"fov": fov, "spot": [0, 1], "x": [0, 100], "y": [10, 20], "z": 0, "r1": 1.0}).to_csv(
+            spots_dir / f"spots_{fov}.csv", index=False
+        )
+    (tmp_path / "positions.tsv").write_text("100\t200\n-50\t-60\n")
+    kwargs = {
+        "input": spots_dir,
+        "output": tmp_path / "decoded.csv",
+        "color_usage": "./tests/data/spots/color_usage.csv",
+        "normalize_colors": False,
+        "positions": tmp_path / "positions.tsv",
+    }
+    with pytest.raises(ValueError, match="scale_factor"):
+        ft.scripts.decode_spots(**kwargs)
+    ft.scripts.decode_spots(**kwargs, scale_factor=0.1)
+    decoded = pd.read_csv(tmp_path / "decoded.csv").sort_values(["fov", "spot"])
+    # Positions are microns; spot x/y are pixels converted with scale_factor
+    assert decoded["global_x"].tolist() == pytest.approx([100, 110, -50, -40])
+    assert decoded["global_y"].tolist() == pytest.approx([201, 202, -59, -58])
 
 
 if __name__ == "__main__":
