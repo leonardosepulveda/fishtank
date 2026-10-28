@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning][].
 
 - `fishtank.correct.stitching`: stitch a FOV grid from neighbour overlaps (phase correlation per edge, per-direction outlier rejection, displacement affine, least-squares positions with an affine prior, held-out validation). Ported from MERlin's `globalpositions`.
 - Microscope settings file: `read_microscope` reads a YAML file with `transpose`, `flip_horizontal`, `flip_vertical` and `micron_per_pixel`, which override the image XML in `read_img`, `read_fov` and `read_mosaic`, and via `--microscope` in `detect-spots`, `cellpose` and `mosaic`. Use it when the XML's orientation or pixel size is wrong for a microscope.
+- `fishtank stitch`: stitch a FOV grid with `fishtank.correct.stitching`, in two steps (a per-FOV array of `--fovs` that saves the overlap bands of the reference-round DAPI max projection, then `--solve` in one job that writes `positions_stitched.txt` for `--positions`, plus an edge table and a report). Stops when neighbouring bands barely correlate, which is what a wrongly oriented image gives.
 
 ### Changed
 
