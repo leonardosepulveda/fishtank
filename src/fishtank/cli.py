@@ -44,6 +44,9 @@ def main():
     subparsers.add_parser(
         "mosaic", parents=[scripts.mosaic_script.get_parser()], help="Create a mosaic from a set of image files"
     )
+    subparsers.add_parser(
+        "stitch", parents=[scripts.stitch_script.get_parser()], help="Stitch a FOV grid from neighbour overlaps"
+    )
 
     # Parse arguments and dispatch the function
     args = parser.parse_args()
