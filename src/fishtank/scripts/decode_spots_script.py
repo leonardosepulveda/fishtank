@@ -37,6 +37,9 @@ def get_parser():
     parser.add_argument(
         "--positions", type=parse_path, default=None, help="TSV file with FOV positions (no header, columns: x, y)"
     )
+    parser.add_argument(
+        "--scale_factor", type=float, default=None, help="Microns per pixel, used to place spots with --positions"
+    )
     parser.add_argument("--flip_horizontal", type=parse_bool, default="False", help="Flip spot x-coordinates")
     parser.add_argument("--flip_vertical", type=parse_bool, default="False", help="Flip spot y-coordinates")
     parser.add_argument("--img_size", type=float, default=2304, help="Image size in pixels (width and height)")
@@ -63,6 +66,7 @@ def decode_spots(
     filter_output: bool = True,
     save_intensities: bool = False,
     positions: str | Path | None = None,
+    scale_factor: float | None = None,
     flip_horizontal: bool = False,
     flip_vertical: bool = False,
     img_size: float = 2304,
@@ -99,6 +103,9 @@ def decode_spots(
     positions
         Path to a two-column (no header) TSV file with x and y positions for each FOV.
         Row index corresponds to FOV number. When provided, overrides global_x/global_y columns.
+        Positions are in microns, as for mosaic and aggregate-polygons.
+    scale_factor
+        Microns per pixel. Required with ``positions``, to convert spot x/y (pixels) to microns.
     flip_horizontal
         Flip spot x-coordinates (maps x → img_size - x).
     flip_vertical
@@ -112,6 +119,8 @@ def decode_spots(
     # Load positions file if provided
     positions_dict = None
     if positions is not None:
+        if scale_factor is None:
+            raise ValueError("scale_factor (microns per pixel) is required with positions")
         pos_df = pd.read_csv(positions, sep=None, engine="python", header=None, names=["x", "y"])
         positions_dict = {i: (row["x"], row["y"]) for i, row in pos_df.iterrows()}
     # Load strategy
@@ -158,8 +167,8 @@ def decode_spots(
         pos_series = pd.DataFrame(positions_dict, index=["x_off", "y_off"]).T
         pos_series.index.name = "fov"
         spots = spots.join(pos_series, on="fov")
-        spots["global_x"] = spots["x"] + spots["x_off"]
-        spots["global_y"] = spots["y"] + spots["y_off"]
+        spots["global_x"] = spots["x"] * scale_factor + spots["x_off"]
+        spots["global_y"] = spots["y"] * scale_factor + spots["y_off"]
         spots.drop(columns=["x_off", "y_off"], inplace=True)
     # Load color usage
     if "{input}" in color_usage:

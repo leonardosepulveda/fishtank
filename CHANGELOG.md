@@ -28,6 +28,7 @@ and this project adheres to [Semantic Versioning][].
 - `decode-spots` drops spots with NaN intensities in the decoding bits before decoding (one NaN made every normalized intensity NaN), and raises a clear error when a decoding bit has no intensity column.
 - `fishtank cellpose` with `gpu=True` raises `RuntimeError` when no working CUDA or MPS device is found, instead of silently running on the CPU while holding the GPU.
 - Boolean script flags (`cellpose --gpu/--do_3D/--clear_border`, `aggregate-polygons --save_union/--flip_*`, `align-experiments --skip_fine`, `assign-spots --map_z`) used `type=bool`, so `False` turned them on. They now use `parse_bool`, which also raises on values that are not true/false, 1/0, yes/no, t/f or y/n instead of reading them as `False`.
+- `decode-spots --positions` added micron positions to pixel spot coordinates; it now converts them with the new `--scale_factor` (microns per pixel), which is required with `--positions`. **Breaking** for `--positions` callers.
 
 ## [0.3.7]
 
