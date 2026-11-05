@@ -33,6 +33,26 @@ def get_parser():
         "--file_pattern", type=str, default="{series}/Conv_zscan_{fov}.dax", help="Naming pattern for image files"
     )
     parser.add_argument("--corrections", type=parse_path, default=None, help="Path to image corrections directory")
+    parser.add_argument(
+        "--corrections_type",
+        type=str,
+        choices=["fishtank", "ffc"],
+        default="fishtank",
+        help="fishtank: illumination_correction_<color>_<Y>x<X>.npy fields; ffc: MERlin CreateFfc output "
+        "(ffc_field_<color>.npy and dark_frame.npy), applied as (img - dark) / field in float32",
+    )
+    parser.add_argument(
+        "--corrections_transpose",
+        type=parse_bool,
+        default=None,
+        help="Transpose the correction fields (default: True for fishtank, False for ffc)",
+    )
+    parser.add_argument(
+        "--corrections_flip",
+        type=parse_bool,
+        default=None,
+        help="Flip the correction fields along Y (default: True for fishtank, False for ffc)",
+    )
     parser.add_argument("--color_usage", type=str, default="{input}/color_usage.csv", help="Path to color usage file")
     parser.add_argument(
         "--z_slices",
@@ -68,6 +88,9 @@ def cellpose(
     output: str | Path = "./cellpose_polygons",
     file_pattern: str = "{series}/Conv_zscan_{fov}.dax",
     corrections: str | Path = None,
+    corrections_type: str = "fishtank",
+    corrections_transpose: bool | None = None,
+    corrections_flip: bool | None = None,
     color_usage: str = "{input}/color_usage.csv",
     z_slices: list[int] | slice | None = None,
     model: str = "cpsam",
@@ -103,6 +126,16 @@ def cellpose(
         Naming pattern for image files.
     corrections
         Path to image corrections directory.
+    corrections_type
+        ``fishtank`` (``illumination_correction_<color>_<Y>x<X>.npy``) or ``ffc`` (MERlin
+        CreateFfc's ``ffc_field_<color>.npy`` and ``dark_frame.npy``; see
+        ``fishtank.correct.illumination``).
+    corrections_transpose
+        Transpose the correction fields. Default: True for ``fishtank``, False for ``ffc``
+        (CreateFfc fields are in MERlin's image frame, which ``--microscope`` reproduces when
+        it matches MERlin's microscope settings).
+    corrections_flip
+        Flip the correction fields along Y. Default: True for ``fishtank``, False for ``ffc``.
     color_usage
         Path to color usage file.
     z_slices
@@ -154,8 +187,11 @@ def cellpose(
     logger.info(f"Loaded attrs: {attrs}")
     # Correct illumination
     if corrections is not None:
-        logger.info(f"Correcting illumination with {corrections}")
-        img = ft.correct.illumination(img, channels.color.values, corrections)
+        ffc = corrections_type == "ffc"
+        transpose = (not ffc) if corrections_transpose is None else corrections_transpose
+        flip = (not ffc) if corrections_flip is None else corrections_flip
+        logger.info(f"Correcting illumination ({corrections_type}, transpose={transpose}, flip={flip}) with {corrections}")
+        img = ft.correct.illumination(img, channels.color.values, corrections, transpose=transpose, flip=flip, ffc=ffc)
     else:
         logger.info("No correction path provided, skipping illumination correction")
     # Apply filter
