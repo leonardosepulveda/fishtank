@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning][].
 
 - `masks_to_polygons` traces each cell on its bounding box instead of scanning the whole volume per cell. Output is unchanged; about 9x faster on a 300-cell 3D volume.
 - `fix_overlaps` splits polygons per cell with one `groupby` and takes the next overlap edge without listing or counting all edges each step. Output is unchanged; on a median LT056 edge tile (102,001 rows, 4,272 cells) it takes 54% of the previous time.
+- `spot_intensities` gathers the discs of all spots that fit in the image and reduces them in one `agg` call per chunk, instead of one call per spot (3-4x faster on 315k spots, identical output). Spots at the image edge keep the per-spot clipped mask.
 
 ### Fixes
 
