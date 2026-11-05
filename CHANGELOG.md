@@ -12,6 +12,8 @@ and this project adheres to [Semantic Versioning][].
 
 ### Added
 
+- `illumination(..., ffc=True)` applies a MERlin CreateFfc flat-field correction, `(img - dark_frame) / ffc_field_<color>`, in float32 clipped at 0. `fishtank cellpose` exposes it with `--corrections_type ffc`, and the field orientation with `--corrections_transpose` / `--corrections_flip` (default: unturned for `ffc`, the previous turn for `fishtank`). Existing `--corrections` behaviour is unchanged.
+
 ### Changed
 
 ### Fixes
