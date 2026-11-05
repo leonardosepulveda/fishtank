@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning][].
 
 ### Changed
 
+- `spot_intensities` gathers the discs of all spots that fit in the image and reduces them in one `agg` call per chunk, instead of one call per spot (3-4x faster on 315k spots, identical output). Spots at the image edge keep the per-spot clipped mask.
+
 ### Fixes
 
 ## [0.3.7]
